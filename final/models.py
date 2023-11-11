@@ -80,7 +80,6 @@ class BasicBlock(nn.Module):
         else:
             return out
 
-###### ResNet-18 - Student Model ######
 class ResNet(nn.Module):
 
     def __init__(self, block, layers, in_channel=12, out_channel=24, zero_init_residual=False):
@@ -191,3 +190,110 @@ def resnet18(pretrained=False, **kwargs):
     """
     model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
     return model
+
+
+
+
+##### LRH-Net - Student Model  #######
+
+def conv1d(in_planes, out_planes, kernel_size, strides=1,padding='same', bias=True):
+    return nn.Conv1d(in_planes, out_planes, kernel_size=kernel_size, stride=strides,padding=padding, bias=bias)
+
+class Cust_SELayer(nn.Module):
+    def __init__(self, channel, reduction=8):
+        super(Cust_SELayer, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool1d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        b, c, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1)
+        return x * y.expand_as(x)
+
+
+class Cust_BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, in_planes, out_channels, kernel_size=8, stride=1, padding='same', bias=False, downsample=None):
+        super().__init__()
+        self.conv1 = conv1d(in_planes, out_channels,kernel_size, strides = (1 if not downsample else 2), padding= ('same' if not downsample else 3))
+        self.relu = nn.ReLU(inplace=True)
+        self.bn1 = nn.BatchNorm1d(out_channels)
+        self.conv2 = conv1d(out_channels, out_channels,kernel_size, strides = 1)
+        self.se = Cust_SELayer(out_channels)
+        self.downsample = downsample
+        self.bn2 = nn.BatchNorm1d(out_channels)
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.relu(out)
+        out = self.bn1(out)
+        out = self.conv2(out)
+        out = self.se(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+#         print(x.size())
+#         print(residual.size())
+#         print(out.size())
+        out += residual
+        out = self.relu(out)
+        out = self.bn2(out)    
+        return out
+
+class Cust_Resnet(nn.Module):
+    def __init__(self, block, layers, input_channel, num_classes):
+        super(Cust_Resnet, self).__init__()
+        
+        self.in_channel = 16
+    
+        self.conv1 = nn.Conv1d(input_channel, 16, kernel_size=8, padding = 'same')
+        self.relu = nn.ReLU(inplace=True)
+        
+        self.layer1 = self._make_layer(block, layers[0],out_channels = 16 )
+        self.layer2 = self._make_layer(block,layers[1],out_channels = 32)
+        self.layer3 = self._make_layer(block,layers[2],out_channels = 64)
+        self.avg_pool = nn.AdaptiveAvgPool1d(1)
+        self.fc = nn.Linear(5, 10)
+        self.fc1 = nn.Linear(64+10, 128)
+        self.fc2 = nn.Linear(128, num_classes)
+        self.sigmoid = nn.Sigmoid()
+    
+    def _make_layer(self, block, num_residual_block, out_channels):
+        downsample = None
+        layers = []
+
+        if self.in_channel != out_channels * block.expansion:
+                downsample = conv1d(self.in_channel, out_channels*block.expansion,kernel_size=1, strides=2, padding=0)
+
+        layers.append( block(in_planes=self.in_channel,out_channels =out_channels,stride=1,downsample=downsample))
+        self.in_channel = out_channels * block.expansion
+        for i in range(1, num_residual_block):
+            layers.append(block(self.in_channel, out_channels))
+        return nn.Sequential(*layers)
+
+    def forward(self,x,ag):
+        x= self.conv1(x)
+        x= self.relu(x)
+        x= self.layer1(x)
+        x= self.layer2(x)
+        x= self.layer3(x)
+        x= self.avg_pool(x)
+        x = x.view(x.size(0), -1)
+        ag = self.fc(ag)
+        x = torch.cat((ag, x), dim=1)
+        x = self.fc1(x)
+        x = self.fc2(x)
+#         x = self.sigmoid(x)
+        return x
+
+
+def CustomResnet(input_channel, num_classes=24):
+    return Cust_Resnet(Cust_BasicBlock, [1,1,1], input_channel, num_classes)
