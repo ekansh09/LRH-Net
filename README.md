@@ -6,7 +6,7 @@ Pytorch implementation for the LRH-Net: A Multi-Level Knowledge Distillation App
 
 ## Proposed Student Architecture
 
-![Optimized Neural Network used](https://github.com/ekansh09/LRH-Net/blob/main/Architectures/LRH-Net.png?raw=true)
+![Optimized Neural Network used](https://github.com/ekansh09/LRH-Net/blob/main/Architectures/LRH-Net.png)
 
 
 ## Proposed Knowledge Distillation methods for ECG classification
